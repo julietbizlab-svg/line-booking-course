@@ -75,6 +75,32 @@
       font-size: 17px;
       line-height: 1.7;
     }
+
+    button {
+      width: 100%;
+      min-height: 48px;
+      margin-top: 26px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.72;
+    }
+
+    .status {
+      min-height: 24px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -82,9 +108,43 @@
     <div class="mark" aria-hidden="true">約</div>
     <h1>課程預約系統</h1>
     <p>手機開啟後可加入主畫面，之後會在這裡預約與管理課程。</p>
+    <button id="cloud-test" type="button">雲端連線測試</button>
+    <div id="cloud-status" class="status" role="status" aria-live="polite"></div>
   </main>
 
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-init.js"></script>
   <script>
+    const cloudTestButton = document.querySelector("#cloud-test");
+    const cloudStatus = document.querySelector("#cloud-status");
+
+    cloudTestButton.addEventListener("click", async () => {
+      cloudTestButton.disabled = true;
+      cloudStatus.textContent = "連線中...";
+
+      try {
+        await window.authReady;
+        const pingRef = db.collection("config").doc("ping");
+
+        await pingRef.set({
+          at: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const snapshot = await pingRef.get();
+        const at = snapshot.get("at");
+        const timeText = at ? at.toDate().toLocaleString("zh-TW") : "剛剛";
+
+        cloudStatus.textContent = `連線成功：${timeText}`;
+      } catch (error) {
+        console.error(error);
+        cloudStatus.textContent = `連線失敗：${error.message}`;
+      } finally {
+        cloudTestButton.disabled = false;
+      }
+    });
+
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("sw.js");
