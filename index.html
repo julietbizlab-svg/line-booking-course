@@ -107,11 +107,47 @@
       text-align: left;
     }
 
+    .schedule-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
     h2 {
-      margin: 0 0 14px;
+      margin: 0;
       font-size: 22px;
       line-height: 1.25;
       letter-spacing: 0;
+    }
+
+    .month-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: none;
+    }
+
+    .icon-button {
+      width: 40px;
+      min-height: 40px;
+      margin: 0;
+      padding: 0;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .month-label {
+      min-width: 78px;
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 800;
+      text-align: center;
+      white-space: nowrap;
     }
 
     .course-list {
@@ -150,6 +186,11 @@
     }
 
     @media (max-width: 560px) {
+      .schedule-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
       .course {
         grid-template-columns: 1fr;
       }
@@ -169,7 +210,14 @@
     <div id="cloud-status" class="status" role="status" aria-live="polite"></div>
 
     <section class="schedule" aria-labelledby="schedule-title">
-      <h2 id="schedule-title">本月課表</h2>
+      <div class="schedule-header">
+        <h2 id="schedule-title">月份課表</h2>
+        <div class="month-controls" aria-label="切換月份">
+          <button id="prev-month" class="icon-button" type="button" aria-label="上個月">‹</button>
+          <div id="month-label" class="month-label"></div>
+          <button id="next-month" class="icon-button" type="button" aria-label="下個月">›</button>
+        </div>
+      </div>
       <div id="schedule-list" class="course-list">
         <div class="status">讀取中...</div>
       </div>
@@ -184,6 +232,12 @@
     const cloudTestButton = document.querySelector("#cloud-test");
     const cloudStatus = document.querySelector("#cloud-status");
     const scheduleList = document.querySelector("#schedule-list");
+    const monthLabel = document.querySelector("#month-label");
+    const prevMonthButton = document.querySelector("#prev-month");
+    const nextMonthButton = document.querySelector("#next-month");
+    let visibleMonth = new Date();
+    visibleMonth.setDate(1);
+    visibleMonth.setHours(0, 0, 0, 0);
 
     function toDateText(dateText, timeText) {
       const date = new Date(`${dateText}T${timeText || "00:00"}:00`);
@@ -204,17 +258,23 @@
       }[char]));
     }
 
-    function getMonthRange() {
-      const today = new Date();
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    function getMonthRange(monthDate) {
+      const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
       start.setHours(0, 0, 0, 0);
 
-      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
 
       return {
         start: start.toISOString().slice(0, 10),
         end: end.toISOString().slice(0, 10)
       };
+    }
+
+    function updateMonthLabel() {
+      monthLabel.textContent = visibleMonth.toLocaleDateString("zh-TW", {
+        year: "numeric",
+        month: "long"
+      });
     }
 
     function renderCourses(snapshot) {
@@ -251,8 +311,9 @@
 
     async function loadMonthlyCourses() {
       try {
+        updateMonthLabel();
         await window.authReady;
-        const { start, end } = getMonthRange();
+        const { start, end } = getMonthRange(visibleMonth);
         const snapshot = await db.collection("courses")
           .where("date", ">=", start)
           .where("date", "<=", end)
@@ -263,6 +324,12 @@
         console.error(error);
         scheduleList.innerHTML = `<div class="status">課表讀取失敗：${error.message}</div>`;
       }
+    }
+
+    function changeMonth(offset) {
+      visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1);
+      scheduleList.innerHTML = '<div class="status">讀取中...</div>';
+      loadMonthlyCourses();
     }
 
     cloudTestButton.addEventListener("click", async () => {
@@ -289,6 +356,9 @@
         cloudTestButton.disabled = false;
       }
     });
+
+    prevMonthButton.addEventListener("click", () => changeMonth(-1));
+    nextMonthButton.addEventListener("click", () => changeMonth(1));
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
