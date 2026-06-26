@@ -39,7 +39,7 @@
     }
 
     main {
-      width: min(100%, 420px);
+      width: min(100%, 720px);
       padding: 36px 28px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -101,6 +101,63 @@
       font-size: 15px;
       line-height: 1.6;
     }
+
+    .schedule {
+      margin-top: 32px;
+      text-align: left;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .course-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .course {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px 16px;
+      align-items: center;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .course-title {
+      margin: 0;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 800;
+      line-height: 1.4;
+    }
+
+    .course-meta,
+    .course-seats {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .course-seats {
+      color: var(--accent);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 560px) {
+      .course {
+        grid-template-columns: 1fr;
+      }
+
+      .course-seats {
+        white-space: normal;
+      }
+    }
   </style>
 </head>
 <body>
@@ -110,6 +167,13 @@
     <p>手機開啟後可加入主畫面，之後會在這裡預約與管理課程。</p>
     <button id="cloud-test" type="button">雲端連線測試</button>
     <div id="cloud-status" class="status" role="status" aria-live="polite"></div>
+
+    <section class="schedule" aria-labelledby="schedule-title">
+      <h2 id="schedule-title">本週課表</h2>
+      <div id="schedule-list" class="course-list">
+        <div class="status">讀取中...</div>
+      </div>
+    </section>
   </main>
 
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -119,6 +183,90 @@
   <script>
     const cloudTestButton = document.querySelector("#cloud-test");
     const cloudStatus = document.querySelector("#cloud-status");
+    const scheduleList = document.querySelector("#schedule-list");
+
+    function toDateText(dateText, timeText) {
+      const date = new Date(`${dateText}T${timeText || "00:00"}:00`);
+      return date.toLocaleDateString("zh-TW", {
+        month: "numeric",
+        day: "numeric",
+        weekday: "short"
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+
+    function getWeekRange() {
+      const today = new Date();
+      const start = new Date(today);
+      const day = start.getDay() || 7;
+      start.setDate(start.getDate() - day + 1);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+
+      return {
+        start: start.toISOString().slice(0, 10),
+        end: end.toISOString().slice(0, 10)
+      };
+    }
+
+    function renderCourses(snapshot) {
+      if (snapshot.empty) {
+        scheduleList.innerHTML = '<div class="status">本週尚無課程</div>';
+        return;
+      }
+
+      const courses = [];
+      snapshot.forEach((doc) => courses.push(doc.data()));
+      const openCourses = courses.filter((course) => course.status === "open");
+
+      if (openCourses.length === 0) {
+        scheduleList.innerHTML = '<div class="status">本週尚無課程</div>';
+        return;
+      }
+
+      openCourses.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+
+      scheduleList.innerHTML = openCourses.map((course) => {
+        const remaining = Number(course.capacity || 0) - Number(course.enrolled || 0);
+
+        return `
+          <article class="course">
+            <div>
+              <h3 class="course-title">${escapeHtml(course.title)}</h3>
+              <div class="course-meta">${escapeHtml(toDateText(course.date, course.time))} ${escapeHtml(course.time)}｜${escapeHtml(course.instructor)}</div>
+            </div>
+            <div class="course-seats">剩 ${remaining} 名</div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadWeeklyCourses() {
+      try {
+        await window.authReady;
+        const { start, end } = getWeekRange();
+        const snapshot = await db.collection("courses")
+          .where("date", ">=", start)
+          .where("date", "<=", end)
+          .get();
+
+        renderCourses(snapshot);
+      } catch (error) {
+        console.error(error);
+        scheduleList.innerHTML = `<div class="status">課表讀取失敗：${error.message}</div>`;
+      }
+    }
 
     cloudTestButton.addEventListener("click", async () => {
       cloudTestButton.disabled = true;
@@ -150,6 +298,8 @@
         navigator.serviceWorker.register("sw.js");
       });
     }
+
+    loadWeeklyCourses();
   </script>
 </body>
 </html>

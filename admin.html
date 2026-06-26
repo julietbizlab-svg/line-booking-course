@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f7a5a">
+  <title>課程後台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f4ec;
+      --panel: #ffffff;
+      --text: #17211e;
+      --muted: #64706b;
+      --accent: #1f7a5a;
+      --line: #dfe5df;
+      --danger: #a64032;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(100%, 860px);
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 22px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 320px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      color: var(--text);
+      font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    button {
+      min-height: 44px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 18px;
+      background: var(--accent);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--text);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .status {
+      min-height: 24px;
+      margin-top: 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      white-space: pre-line;
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>課程後台</h1>
+        <p id="admin-user">尚未登入</p>
+      </div>
+      <button id="login" type="button">Google 登入</button>
+      <button id="logout" class="secondary" type="button" hidden>登出</button>
+    </header>
+
+    <section id="blocked" hidden>
+      <h2>無法使用後台</h2>
+      <p class="error">這個 Google 帳號沒有後台權限。</p>
+    </section>
+
+    <section id="importer" hidden>
+      <label for="csv">貼上課表 CSV</label>
+      <textarea id="csv" spellcheck="false" placeholder="date,time,title,instructor,capacity"></textarea>
+      <div class="actions">
+        <button id="import" type="button">匯入課表</button>
+      </div>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-init.js"></script>
+  <script>
+    const STUDIO_EMAIL = "julietbizlab@gmail.com";
+    const loginButton = document.querySelector("#login");
+    const logoutButton = document.querySelector("#logout");
+    const adminUser = document.querySelector("#admin-user");
+    const blocked = document.querySelector("#blocked");
+    const importer = document.querySelector("#importer");
+    const csvInput = document.querySelector("#csv");
+    const importButton = document.querySelector("#import");
+    const statusBox = document.querySelector("#status");
+
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let value = "";
+      let quoted = false;
+      const cleanText = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+      for (let i = 0; i < cleanText.length; i += 1) {
+        const char = cleanText[i];
+        const next = cleanText[i + 1];
+
+        if (char === '"' && quoted && next === '"') {
+          value += '"';
+          i += 1;
+        } else if (char === '"') {
+          quoted = !quoted;
+        } else if (char === "," && !quoted) {
+          row.push(value.trim());
+          value = "";
+        } else if (char === "\n" && !quoted) {
+          row.push(value.trim());
+          if (row.some(Boolean)) rows.push(row);
+          row = [];
+          value = "";
+        } else {
+          value += char;
+        }
+      }
+
+      row.push(value.trim());
+      if (row.some(Boolean)) rows.push(row);
+      return rows;
+    }
+
+    function parseCourses(text) {
+      const rows = parseCsv(text);
+      const header = rows.shift() || [];
+      const normalized = header.map((name) => name.replace(/^\uFEFF/, "").trim());
+      const expected = ["date", "time", "title", "instructor", "capacity"];
+
+      if (expected.some((name, index) => normalized[index] !== name)) {
+        throw new Error("CSV 欄位必須是 date,time,title,instructor,capacity");
+      }
+
+      return rows.map((row, index) => {
+        const [date, time, title, instructor, capacityText] = row;
+        const capacity = Number(capacityText);
+
+        if (!date || !time || !title || !instructor || !Number.isFinite(capacity)) {
+          return { skipped: true, line: index + 2, reason: "欄位不完整" };
+        }
+
+        return {
+          skipped: false,
+          id: `${date.replaceAll("-", "")}_${time.replaceAll(":", "")}`,
+          data: {
+            date,
+            time,
+            title,
+            instructor,
+            capacity
+          }
+        };
+      });
+    }
+
+    async function importCourses() {
+      importButton.disabled = true;
+      statusBox.textContent = "匯入中...";
+
+      try {
+        const rows = parseCourses(csvInput.value);
+        const validRows = rows.filter((row) => !row.skipped);
+        const skippedRows = rows.filter((row) => row.skipped);
+        let created = 0;
+        let updated = 0;
+
+        for (const row of validRows) {
+          const ref = db.collection("courses").doc(row.id);
+          const snapshot = await ref.get();
+
+          if (snapshot.exists) {
+            await ref.set(row.data, { merge: true });
+            updated += 1;
+          } else {
+            await ref.set({
+              ...row.data,
+              enrolled: 0,
+              status: "open"
+            });
+            created += 1;
+          }
+        }
+
+        const skippedText = skippedRows.length
+          ? `\n略過 ${skippedRows.length} 列：${skippedRows.map((row) => `第 ${row.line} 列`).join("、")}`
+          : "";
+
+        statusBox.textContent = `匯入完成：新增 ${created} 筆，更新 ${updated} 筆。${skippedText}`;
+      } catch (error) {
+        console.error(error);
+        statusBox.textContent = `匯入失敗：${error.message}`;
+      } finally {
+        importButton.disabled = false;
+      }
+    }
+
+    loginButton.addEventListener("click", async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await auth.signInWithPopup(provider);
+    });
+
+    logoutButton.addEventListener("click", () => {
+      auth.signOut();
+    });
+
+    importButton.addEventListener("click", importCourses);
+
+    auth.onAuthStateChanged((user) => {
+      const isAdmin = user && !user.isAnonymous && user.email === STUDIO_EMAIL;
+
+      adminUser.textContent = user && !user.isAnonymous ? user.email : "尚未登入";
+      loginButton.hidden = Boolean(user && !user.isAnonymous);
+      logoutButton.hidden = !user || user.isAnonymous;
+      importer.hidden = !isAdmin;
+      blocked.hidden = !user || user.isAnonymous || isAdmin;
+    });
+  </script>
+</body>
+</html>
