@@ -169,7 +169,7 @@
     <div id="cloud-status" class="status" role="status" aria-live="polite"></div>
 
     <section class="schedule" aria-labelledby="schedule-title">
-      <h2 id="schedule-title">本週課表</h2>
+      <h2 id="schedule-title">本月課表</h2>
       <div id="schedule-list" class="course-list">
         <div class="status">讀取中...</div>
       </div>
@@ -204,15 +204,12 @@
       }[char]));
     }
 
-    function getWeekRange() {
+    function getMonthRange() {
       const today = new Date();
-      const start = new Date(today);
-      const day = start.getDay() || 7;
-      start.setDate(start.getDate() - day + 1);
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
       start.setHours(0, 0, 0, 0);
 
-      const end = new Date(start);
-      end.setDate(start.getDate() + 6);
+      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
       return {
         start: start.toISOString().slice(0, 10),
@@ -222,7 +219,7 @@
 
     function renderCourses(snapshot) {
       if (snapshot.empty) {
-        scheduleList.innerHTML = '<div class="status">本週尚無課程</div>';
+        scheduleList.innerHTML = '<div class="status">本月尚無課程</div>';
         return;
       }
 
@@ -231,7 +228,7 @@
       const openCourses = courses.filter((course) => course.status === "open");
 
       if (openCourses.length === 0) {
-        scheduleList.innerHTML = '<div class="status">本週尚無課程</div>';
+        scheduleList.innerHTML = '<div class="status">本月尚無課程</div>';
         return;
       }
 
@@ -252,10 +249,10 @@
       }).join("");
     }
 
-    async function loadWeeklyCourses() {
+    async function loadMonthlyCourses() {
       try {
         await window.authReady;
-        const { start, end } = getWeekRange();
+        const { start, end } = getMonthRange();
         const snapshot = await db.collection("courses")
           .where("date", ">=", start)
           .where("date", "<=", end)
@@ -299,7 +296,7 @@
       });
     }
 
-    loadWeeklyCourses();
+    loadMonthlyCourses();
   </script>
 </body>
 </html>
